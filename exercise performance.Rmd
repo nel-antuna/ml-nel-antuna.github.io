@@ -1,0 +1,181 @@
+---
+title: "Exercise Performance Prediction"
+author: "Nel Antuña"
+date: "18/12/2020"
+output: html_document
+---
+
+# Introduction
+
+The purpose of this project will be to predict the way in which certain people perform some training exercises by analysing information gathered from body devices. 
+
+Due to computer limitations, the type of prediction made will be pretty simple so that my laptop can run it. 
+
+# Initial options
+
+For this project we will mostly work with the following packages:
+
+- Tidyverse package -> for data manipulation
+- Caret package -> for machine learning operations
+
+In addition, we will set seeds so that results can be replicable. 
+
+```{r options, echo=TRUE, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(caret)
+set.seed(255)
+```
+
+# Data exploration
+
+## Data source
+
+Data has been obtained from this source: http://web.archive.org/web/20161224072740/http:/groupware.les.inf.puc-rio.br/har
+
+```{r data source}
+setwd("C:/Users/Nel/Documents/R files/college_major_analysis/")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", destfile = "training.csv")
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", destfile = "testing.csv")
+dataset <- read.csv("./training.csv")
+```
+
+## Data exploration
+
+```{r data exploration, echo=FALSE}
+dims <- dim(dataset)
+```
+
+The dataset downloaded has 'r dims[2]` variables and `r dims[1]` observations. 
+
+```{r data exploration2, echo=FALSE}
+table(sapply(dataset, class))
+```
+
+## Covariate selection
+
+We will examine the dataset and select those variables relevant for the analysis
+
+### Non-relevant variables
+
+There are a series of variables that have no relation to the activity performance:
+
+- Variable 'X' -> only gives the row number
+- Time variables -> not required for the prediction
+- User name -> not needed
+- New and num window -> not relevant
+
+```{r non relevant, echo=TRUE}
+time_var <- colnames(select(dataset, contains("time")))
+non_relevant <- c("X",time_var,"user_name","new_window","num_window")
+```
+
+### Detecting variables with high amount of NAs
+
+We label those variables with over 90% of missing values
+
+```{r nas, echo=TRUE}
+nas <- rep(FALSE, ncol(dataset))
+for (i in 3:ncol(dataset)) {
+ t <- tapply(dataset[,i],dataset$user_name, function(x) mean(is.na(x)))
+ if (mean(t) > 0.90) {nas[i] <- TRUE}
+}
+cols_with_nas <- colnames(dataset)[nas]
+```
+
+### Detecting variables with high amount of incomplete data
+
+We label those variables with over 90% of incomplete data
+
+```{r incomplete, echo=TRUE}
+nulls <- apply(dataset, 2, function(x) mean(x == ""))>0.90
+cols_with_nulls <- colnames(dataset)[nulls]
+cols_with_nulls <- cols_with_nulls[!is.na(cols_with_nulls)]
+```
+
+## Final dataset
+
+```{r final dataset, echo=TRUE, message=FALSE} 
+non_var <- c(non_relevant,cols_with_nas,cols_with_nulls)
+dataset_new <- select(dataset, -non_var)
+dims_new <- dim(dataset_new)
+```
+
+The new dataset contains same number of observations (`r dims_new[1]`) but only `r dims_new[2]` variables
+
+### Outcome
+
+Outcome is Classe variable: category variable with the following options
+
+```{r outcome, echo=FALSE} 
+table(dataset_new$classe)
+```
+
+### Predictors
+
+Below is displayed the number of predictors finally consider and their class:
+
+```{r predictors, echo=FALSE} 
+table(sapply(dataset_new[,-53],class))
+
+```
+
+A high-level exploration of the data shows that predictors don't seem to adhere to the normal distributions and correlation among them might lead to problems. Below an example with 5 of the variables:
+
+```{r predictors fig, echo=FALSE, message=FALSE, warning=FALSE} 
+featurePlot(x = dataset_new[,1:5], y = dataset_new$classe, plot = "pairs")
+```
+
+# Prediction analysis
+
+## Setting up training and testing data sets
+
+We start by creating a partition of the data for training and testing datasets
+
+```{r partition, echo=TRUE, message=FALSE, warning=FALSE} 
+inTrain <- createDataPartition(y = dataset_new$classe, p=0.8, list=FALSE)
+training <- dataset_new[inTrain,]
+testing <- dataset_new[-inTrain,]
+```
+
+## Training a model
+
+We will use the training data set to produce our models. 
+Characteristics:
+
+- Algorithm will be classification tree
+- Given the high amount of variables, we will include a Pricipal Components Analysis in order to reduce the impact that high number of variables can have on results 
+- Given that variables don't adjust to normal distribution, a BoxCox correction will be inlcuded 
+
+```{r model, message=FALSE, warning=FALSE} 
+fit_ctrees <- train(classe~., data = training, method = c("ctree", "PCA", "BoxCox"))
+
+```
+
+
+## Accuracy 
+
+```{r acc, message=FALSE, warning=FALSE} 
+pred_ctrees_test <- predict(fit_ctrees, testing)
+
+acc_ctrees <- (sum(pred_ctrees_test==testing$classe)/length(pred_ctrees_test))
+```
+
+When compare the prediciton of the testing values with the actual values, we see that the accuracy of the model is of `r acc_ctrees` 
+
+# Prediciton
+
+The initial dataset included 20 observations with ououtcome assign. 
+We will predict the outcome of this data:
+
+First, we need to prepare the data:
+```{r test data, message=FALSE, warning=FALSE} 
+test_data <- read.csv("./testing.csv")
+#non_var object contained those variables that are not useful or have missing/incomplete values
+test_data_new <- select(test_data, -non_var)
+```
+
+We run prediction on the data and these are the results:
+
+```{r test data2, echo=FALSE, message=FALSE, warning=FALSE} 
+predict(fit_ctrees, test_data_new)
+```
